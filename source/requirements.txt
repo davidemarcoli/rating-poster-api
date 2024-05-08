@@ -1,0 +1,4 @@
+fastapi
+requests
+pillow
+python-dotenv
