@@ -6,6 +6,16 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.coder import Coder
+from fastapi_cache.decorator import cache
+from redis import asyncio as aioredis
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.requests import Request
 from starlette.responses import Response
 
 from source.scrapers.imdb_cinemeta import IMDBCinemetaScraper
@@ -17,7 +27,10 @@ load_dotenv()
 if not os.getenv("TMDB_API_KEY"):
     exit()
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 scrapers = [
     # IMDBScraper,
@@ -27,8 +40,31 @@ scrapers = [
 ]
 
 
+class CustomResponseCoder(Coder):
+    @classmethod
+    def encode(cls, value: Response) -> bytes:
+        return value.body
+
+    @classmethod
+    def decode(cls, value: bytes) -> Response:
+        return Response(content=value, media_type="image/jpeg")
+
+
+def request_key_builder(
+        func,
+        namespace: str = "",
+        *,
+        request: Request = None,
+        response: Response = None,
+        **kwargs,
+):
+    return request.url.path
+
+
 @app.get("/{id}")
-async def get_poster(id: str):
+@cache(expire=3600 * 24, coder=CustomResponseCoder, namespace="get_poster", key_builder=request_key_builder)
+@limiter.limit("50/second")
+def get_poster(request: Request, id: str):
     start_time = time.time()
     url = f"https://api.themoviedb.org/3/find/{id}?api_key={os.getenv("TMDB_API_KEY")}&external_source=imdb_id"
     response = requests.get(url)
@@ -42,7 +78,7 @@ async def get_poster(id: str):
     else:
         return Response("No Results")
 
-    poster_url = "https://image.tmdb.org/t/p/original" + data.get("tv_results")[0].get("poster_path")
+    poster_url = "https://image.tmdb.org/t/p/original" + media.get("poster_path")
 
     image_fetch_start_time = time.time()
     image_response = requests.get(poster_url)
@@ -81,6 +117,13 @@ async def get_poster(id: str):
     return Response(content=output.getvalue(), media_type="image/jpeg")
 
 
+@app.on_event("startup")
+async def startup():
+    redis = aioredis.from_url("redis://localhost:6379")
+    FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
+    # FastAPICache.init(InMemoryBackend())
+
+
 def add_text_overlay(image, scores):
     width, height = image.size
 
@@ -113,9 +156,7 @@ def add_text_overlay(image, scores):
         else:
             logos.append(None)
         _, _, text_width, text_height = draw.textbbox((0, 0), str(score.get("score")), font=font)
-        print("TEXT WIDTH: " + str(text_width))
-        # total_text_width += (text_width + text_spacing) + (
-        #     (logo.width + logo_spacing) if logo else draw.textbbox((0, 0), score.get("name") + ": ", font=font)[2])
+        # print("TEXT WIDTH: " + str(text_width))
 
         total_text_width += (text_width + text_spacing)
 
@@ -126,44 +167,41 @@ def add_text_overlay(image, scores):
 
         total_text_height = text_height
 
-    print("TOTAL TEXT WIDTH: " + str(total_text_width))
+    # print("TOTAL TEXT WIDTH: " + str(total_text_width))
 
     # Check if we need to scale down logos and text to fit
     if total_text_width > max_total_text_width or total_text_height > overlay_height * 0.7:
-        scale_factor_width = (max_total_text_width - sum(logo.width if logo else 0 for logo in logos)) / total_text_width
+        scale_factor_width = (max_total_text_width - sum(
+            logo.width if logo else 0 for logo in logos)) / total_text_width
         scale_factor_height = overlay_height * 0.7 / total_text_height
         scale_factor = min(scale_factor_width, scale_factor_height)
-        print("Scale factors: " + str(scale_factor_width) + ", " + str(scale_factor_height))
-        print("Old font size: " + str(font_size))
+        # print("Scale factors: " + str(scale_factor_width) + ", " + str(scale_factor_height))
+        # print("Old font size: " + str(font_size))
         font_size = int(font_size * scale_factor)
-        print("New font size: " + str(font_size))
+        # print("New font size: " + str(font_size))
         font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
-        # logos = [logo.resize((int(logo.width * scale_factor), int(logo.height * scale_factor)), Image.Resampling.LANCZOS) if logo else logo for
-        #          logo in logos]
         for logo in logos:
             if logo:
                 logo.thumbnail((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
-                # logo.thumbnail((int(logo.height * scale_factor), int(logo.width * scale_factor)), Image.Resampling.LANCZOS)
-        total_text_width = 0
 
     # Draw logos and texts on the overlay
     current_x = int(width * 0.01)
 
     for logo, score in zip(logos, scores):
         text = str(score.get("score"))
-        print(score.get("name") + ": " + str(current_x))
+        # print(score.get("name") + ": " + str(current_x))
         if logo:
             overlay.paste(logo, (int(current_x), (overlay_height - logo.height) // 2), logo)
             current_x += logo.width + logo_spacing
         else:
             text = score.get("name") + ": " + text
-        print("Overlay height: " + str(overlay_height))
-        print("Draw height: " + str(draw.textbbox((0, 0), text, font=font)[3]))
+        # print("Overlay height: " + str(overlay_height))
+        # print("Draw height: " + str(draw.textbbox((0, 0), text, font=font)[3]))
         text_position = (current_x, (overlay_height - draw.textbbox((0, 0), text, font=font)[3]) // 2)
-        print(text_position)
-        print(font.size)
+        # print(text_position)
+        # print(font.size)
         draw.text(text_position, text, font=font, fill=(255, 255, 255, 255))  # White text
-        print(draw.textbbox((0, 0), text, font=font))
+        # print(draw.textbbox((0, 0), text, font=font))
         current_x += draw.textbbox((0, 0), text, font=font)[2] + text_spacing
 
     # Merge the overlay with the original image

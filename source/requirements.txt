@@ -4,3 +4,5 @@ pillow
 python-dotenv
 beautifulsoup4
 fake_useragent
+fastapi-cache2[redis]
+slowapi
