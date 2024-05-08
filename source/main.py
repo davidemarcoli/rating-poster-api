@@ -185,22 +185,22 @@ def add_text_overlay(image, scores):
                 logo.thumbnail((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
 
     # Draw logos and texts on the overlay
-    current_x = int(width * 0.01)
+    current_x = int(width * 0.03)
 
     for logo, score in zip(logos, scores):
         text = str(score.get("score"))
         # print(score.get("name") + ": " + str(current_x))
         if logo:
-            overlay.paste(logo, (int(current_x), (overlay_height - logo.height) // 2), logo)
+            overlay.paste(logo, (current_x, (overlay_height - logo.height) // 2), logo)
             current_x += logo.width + logo_spacing
         else:
             text = score.get("name") + ": " + text
         # print("Overlay height: " + str(overlay_height))
         # print("Draw height: " + str(draw.textbbox((0, 0), text, font=font)[3]))
-        text_position = (current_x, (overlay_height - draw.textbbox((0, 0), text, font=font)[3]) // 2)
+        text_position = (current_x, overlay_height // 2)
         # print(text_position)
         # print(font.size)
-        draw.text(text_position, text, font=font, fill=(255, 255, 255, 255))  # White text
+        draw.text(text_position, text, font=font, anchor="lm", fill=(255, 255, 255, 255))  # White text
         # print(draw.textbbox((0, 0), text, font=font))
         current_x += draw.textbbox((0, 0), text, font=font)[2] + text_spacing
 
