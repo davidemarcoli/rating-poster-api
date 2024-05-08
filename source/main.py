@@ -30,13 +30,12 @@ async def get_poster(id: str):
     poster_url = "https://image.tmdb.org/t/p/original" + data.get("tv_results")[0].get("poster_path")
 
     image_response = requests.get(poster_url)
-    # f = open('test.png', 'wb')
-    # f.write(response.content)
 
     poster_img = Image.open(BytesIO(image_response.content))
-    # poster_img.show()
 
     poster_img = add_text_overlay(poster_img, f"Rating: {"%.1f" % data.get("tv_results")[0].get("vote_average")}")
+
+    # poster_img.show()
 
     output = BytesIO()
     poster_img.save(output, format="jpeg")
