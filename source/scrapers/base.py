@@ -5,6 +5,7 @@ ua = UserAgent()
 
 class BaseScraper:
     name = "base"
+    image = None
 
     def request(self, url):
         headers = {'User-Agent': ua.random}

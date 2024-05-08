@@ -7,6 +7,7 @@ from source.scrapers.base import BaseScraper
 
 class IMDBCinemetaScraper(BaseScraper):
     name = "imdb"
+    image = "imdb.png"
 
     def scrape(self, id, media):
 

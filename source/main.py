@@ -1,16 +1,13 @@
-import json
 import os
 import time
 from io import BytesIO
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from starlette.responses import Response
 
-from dotenv import load_dotenv
-
-from source.scrapers.imdb import IMDBScraper
 from source.scrapers.imdb_cinemeta import IMDBCinemetaScraper
 from source.scrapers.tmdb import TMDBScraper
 from source.scrapers.trakt import TraktScraper
@@ -59,20 +56,18 @@ async def get_poster(id: str):
 
     for scraper in scrapers:
         scraper_start_time = time.time()
-        scores.append({"name": scraper.name, "score": scraper().scrape(id, media)})
+        scores.append({"name": scraper.name, "image": scraper.image, "score": scraper().scrape(id, media)})
         print(scraper.name + " took " + str((time.time() - scraper_start_time) * 1000) + "ms")
 
-    print(scores)
+    filter(filter_none, scores)
 
-    scores = filter(filter_none, scores)
-
-    texts = []
-
-    for score in scores:
-        texts.append(score.get("name") + ": " + str(score.get("score")))
+    # texts = []
+    #
+    # for score in scores:
+    #     texts.append(score.get("name") + ": " + str(score.get("score")))
 
     overlay_start_time = time.time()
-    poster_img = add_text_overlay(poster_img, "   ".join(texts))
+    poster_img = add_text_overlay(poster_img, scores)
     print("Text overlay took " + str((time.time() - overlay_start_time) * 1000) + "ms")
 
     # poster_img.show()
@@ -86,33 +81,90 @@ async def get_poster(id: str):
     return Response(content=output.getvalue(), media_type="image/jpeg")
 
 
-def add_text_overlay(image, text):
+def add_text_overlay(image, scores):
     width, height = image.size
 
     # Create an overlay image
     overlay_height = int(height / 10)
-    overlay = Image.new('RGBA', (width, overlay_height), (0, 0, 0, 240))  # Grey, semi-transparent
+    overlay = Image.new('RGBA', (width, overlay_height), (0, 0, 0, 240))  # Semi-transparent black
     draw = ImageDraw.Draw(overlay)
 
-    # Define the font and add text
-    font_size = 10
-    text_width = 0
-    text_height = 0
-    while font_size < 1000:
-        font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
-        _, _, text_width, text_height = draw.textbbox((0, 0), text, font=font)
-        if text_width < width * 0.9:
-            font_size += 1
+    # Calculate spacing and font
+    font_size = 1000
+    font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
+
+    total_text_width = 0
+    total_text_height = 0
+    text_spacing = 40  # Space between the texts
+    logo_spacing = 20  # Space between the logo and the text
+    max_total_text_width_factor = 0.9  # Maximum width of the text as a factor of the image width
+    max_total_text_width = width * max_total_text_width_factor
+    logos = []  # To store resized logos
+
+    # Load and resize logos, and calculate total width required
+    for score in scores:
+        logo = None
+        if score.get("image"):
+            logo_path = f"source/assets/{score.get('image')}"  # Assume logos are named like 'imdb_logo.png'
+            logo = Image.open(logo_path).convert("RGBA")
+            # logo = logo.resize((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
+            logo.thumbnail((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
+            logos.append(logo)
         else:
-            break
-    # font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
-    # _, _, text_width, text_height = draw.textbbox((0, 0), text, font=font)
+            logos.append(None)
+        _, _, text_width, text_height = draw.textbbox((0, 0), str(score.get("score")), font=font)
+        print("TEXT WIDTH: " + str(text_width))
+        # total_text_width += (text_width + text_spacing) + (
+        #     (logo.width + logo_spacing) if logo else draw.textbbox((0, 0), score.get("name") + ": ", font=font)[2])
 
-    if text_width == 0 or text_height == 0:
-        return image
+        total_text_width += (text_width + text_spacing)
 
-    text_position = ((width - text_width) // 2, (overlay_height - text_height) // 2)
-    draw.text(text_position, text, font=font, fill=(255, 255, 255, 255))  # White text
+        if logo:
+            total_text_width += (logo.width + logo_spacing)
+        else:
+            total_text_width += draw.textbbox((0, 0), score.get("name") + ": ", font=font)[2]
+
+        total_text_height = text_height
+
+    print("TOTAL TEXT WIDTH: " + str(total_text_width))
+
+    # Check if we need to scale down logos and text to fit
+    if total_text_width > max_total_text_width or total_text_height > overlay_height * 0.7:
+        scale_factor_width = (max_total_text_width - sum(logo.width if logo else 0 for logo in logos)) / total_text_width
+        scale_factor_height = overlay_height * 0.7 / total_text_height
+        scale_factor = min(scale_factor_width, scale_factor_height)
+        print("Scale factors: " + str(scale_factor_width) + ", " + str(scale_factor_height))
+        print("Old font size: " + str(font_size))
+        font_size = int(font_size * scale_factor)
+        print("New font size: " + str(font_size))
+        font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
+        # logos = [logo.resize((int(logo.width * scale_factor), int(logo.height * scale_factor)), Image.Resampling.LANCZOS) if logo else logo for
+        #          logo in logos]
+        for logo in logos:
+            if logo:
+                logo.thumbnail((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
+                # logo.thumbnail((int(logo.height * scale_factor), int(logo.width * scale_factor)), Image.Resampling.LANCZOS)
+        total_text_width = 0
+
+    # Draw logos and texts on the overlay
+    current_x = int(width * 0.01)
+
+    for logo, score in zip(logos, scores):
+        text = str(score.get("score"))
+        print(score.get("name") + ": " + str(current_x))
+        if logo:
+            overlay.paste(logo, (int(current_x), (overlay_height - logo.height) // 2), logo)
+            current_x += logo.width + logo_spacing
+        else:
+            text = score.get("name") + ": " + text
+        print("Overlay height: " + str(overlay_height))
+        print("Draw height: " + str(draw.textbbox((0, 0), text, font=font)[3]))
+        text_position = (current_x, (overlay_height - draw.textbbox((0, 0), text, font=font)[3]) // 2)
+        print(text_position)
+        print(font.size)
+        draw.text(text_position, text, font=font, fill=(255, 255, 255, 255))  # White text
+        print(draw.textbbox((0, 0), text, font=font))
+        current_x += draw.textbbox((0, 0), text, font=font)[2] + text_spacing
 
     # Merge the overlay with the original image
     image.paste(overlay, (0, height - overlay_height), overlay)

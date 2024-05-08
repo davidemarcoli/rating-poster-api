@@ -7,6 +7,7 @@ from source.scrapers.base import BaseScraper
 
 class TraktScraper(BaseScraper):
     name = "trakt"
+    image = "trakt.png"
 
     def scrape(self, id, media):
 

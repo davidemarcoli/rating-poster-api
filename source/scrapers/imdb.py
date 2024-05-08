@@ -3,6 +3,7 @@ from source.scrapers.base import BaseScraper
 
 class IMDBScraper(BaseScraper):
     name = "imdb"
+    image = "imdb.png"
 
     def scrape(self, id, media):
         url = "https://www.imdb.com/title/" + id
