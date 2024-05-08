@@ -1,17 +1,18 @@
-import requests
-from bs4 import BeautifulSoup
-from fake_useragent import UserAgent
-ua = UserAgent()
+from source.scrapers.base import BaseScraper
 
-class IMDBSpider:
-    def parse(self, id):
-        headers = {'User-Agent': ua.random}
-        URL = "https://www.imdb.com/title/" + id
-        page = requests.get(URL, headers=headers)
 
-        soup = BeautifulSoup(page.content, "html.parser")
+class IMDBScraper(BaseScraper):
+    name = "imdb"
 
-        elements = soup.find_all("span", class_="cMEQkK")
-        if len(elements) > 0:
-            return elements[0].text
+    def scrape(self, id, media):
+        url = "https://www.imdb.com/title/" + id
 
+        soup = self.request(url)
+
+        rating_score_element = soup.find("div", attrs={'data-testid': 'hero-rating-bar__aggregate-rating__score'})
+        rating_score_element_children = list(rating_score_element.children)
+
+        if len(rating_score_element_children) > 0:
+            return rating_score_element_children[0].text
+
+        return None

@@ -9,7 +9,9 @@ from starlette.responses import Response
 
 from dotenv import load_dotenv
 
-from source.scrapers.imdb import IMDBSpider
+from source.scrapers.imdb import IMDBScraper
+from source.scrapers.tmdb import TMDBScraper
+from source.scrapers.trakt import TraktScraper
 
 load_dotenv()
 
@@ -18,15 +20,25 @@ if not os.getenv("TMDB_API_KEY"):
 
 app = FastAPI()
 
+scrapers = [
+    IMDBScraper,
+    TMDBScraper,
+    TraktScraper
+]
+
 
 @app.get("/{id}")
 async def get_poster(id: str):
     url = f"https://api.themoviedb.org/3/find/{id}?api_key={os.getenv("TMDB_API_KEY")}&external_source=imdb_id"
     response = requests.get(url)
     data = response.json()
-    # print(json.dumps(data, indent=2))
+    print(json.dumps(data, indent=2))
 
-    if len(data.get("tv_results")) == 0:
+    if len(data.get("movie_results")) > 0:
+        media = data.get("movie_results")[0]
+    elif len(data.get("tv_results")) > 0:
+        media = data.get("tv_results")[0]
+    else:
         return Response("No Results")
 
     poster_url = "https://image.tmdb.org/t/p/original" + data.get("tv_results")[0].get("poster_path")
@@ -35,9 +47,23 @@ async def get_poster(id: str):
 
     poster_img = Image.open(BytesIO(image_response.content))
 
-    imdb_rating = IMDBSpider().parse(id)
+    # imdb_rating = IMDBScraper().scrape(id, media)
 
-    poster_img = add_text_overlay(poster_img, f"TMDB Rating: {"%.1f" % data.get("tv_results")[0].get("vote_average")}   IMDB Rating: {imdb_rating}")
+    scores = []
+
+    for scraper in scrapers:
+        scores.append({"name": scraper.name, "score": scraper().scrape(id, media)})
+
+    print(scores)
+
+    scores = filter(filter_none, scores)
+
+    texts = []
+
+    for score in scores:
+        texts.append(score.get("name") + ": " + str(score.get("score")))
+
+    poster_img = add_text_overlay(poster_img, "   ".join(texts))
 
     # poster_img.show()
 
@@ -66,3 +92,7 @@ def add_text_overlay(image, text):
     image.paste(overlay, (0, height - overlay_height), overlay)
 
     return image
+
+
+def filter_none(item):
+    return item is not None and item.get("score") is not None
