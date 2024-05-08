@@ -1,0 +1,11 @@
+X - imdb
+X - tmdb
+trakt
+tomatoes-critics
+tomatoes-audience
+metacritic-critics
+metacritic-audience
+letterboxd
+rogerebert
+myanimelist
+commonsens

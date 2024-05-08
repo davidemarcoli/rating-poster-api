@@ -9,6 +9,8 @@ from starlette.responses import Response
 
 from dotenv import load_dotenv
 
+from source.scrapers.imdb import IMDBSpider
+
 load_dotenv()
 
 if not os.getenv("TMDB_API_KEY"):
@@ -22,7 +24,7 @@ async def get_poster(id: str):
     url = f"https://api.themoviedb.org/3/find/{id}?api_key={os.getenv("TMDB_API_KEY")}&external_source=imdb_id"
     response = requests.get(url)
     data = response.json()
-    print(json.dumps(data, indent=2))
+    # print(json.dumps(data, indent=2))
 
     if len(data.get("tv_results")) == 0:
         return Response("No Results")
@@ -33,7 +35,9 @@ async def get_poster(id: str):
 
     poster_img = Image.open(BytesIO(image_response.content))
 
-    poster_img = add_text_overlay(poster_img, f"Rating: {"%.1f" % data.get("tv_results")[0].get("vote_average")}")
+    imdb_rating = IMDBSpider().parse(id)
+
+    poster_img = add_text_overlay(poster_img, f"TMDB Rating: {"%.1f" % data.get("tv_results")[0].get("vote_average")}   IMDB Rating: {imdb_rating}")
 
     # poster_img.show()
 

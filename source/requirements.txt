@@ -2,3 +2,5 @@ fastapi
 requests
 pillow
 python-dotenv
+beautifulsoup4
+fake_useragent
