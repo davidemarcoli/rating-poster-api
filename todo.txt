@@ -1,6 +1,6 @@
 X - imdb
 X - tmdb
-trakt
+X - trakt
 tomatoes-critics
 tomatoes-audience
 metacritic-critics
@@ -9,3 +9,7 @@ letterboxd
 rogerebert
 myanimelist
 commonsens
+
+Failty:
+- tt6733874
+- tt29472617

@@ -40,3 +40,5 @@ build/
 
 # PyPI upload artifacts
 .pypirc
+
+deployment/data/

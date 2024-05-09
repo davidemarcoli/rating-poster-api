@@ -91,11 +91,15 @@ def get_poster(request: Request, id: str):
     scores = []
 
     for scraper in scrapers:
-        scraper_start_time = time.time()
-        scores.append({"name": scraper.name, "image": scraper.image, "score": scraper().scrape(id, media)})
-        print(scraper.name + " took " + str((time.time() - scraper_start_time) * 1000) + "ms")
+        try:
+            scraper_start_time = time.time()
+            scores.append({"name": scraper.name, "image": scraper.image, "score": scraper().scrape(id, media)})
+            print(scraper.name + " took " + str((time.time() - scraper_start_time) * 1000) + "ms")
+        except Exception as e:
+            print(e)
 
-    filter(filter_none, scores)
+    scores = list(filter(filter_none, scores))
+    print(scores)
 
     # texts = []
     #
@@ -211,4 +215,4 @@ def add_text_overlay(image, scores):
 
 
 def filter_none(item):
-    return item is not None and item.get("score") is not None
+    return item is not None and item.get("score") is not None and item.get("score") != "" and str(item.get("score")) != "0.0"
