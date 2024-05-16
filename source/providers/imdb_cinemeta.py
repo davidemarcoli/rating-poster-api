@@ -1,15 +1,13 @@
-import json
-
 import requests
 
-from source.scrapers.base import BaseScraper
+from source.providers.base import BaseProvider
 
 
-class IMDBCinemetaScraper(BaseScraper):
+class IMDBCinemetaScraper(BaseProvider):
     name = "imdb"
     image = "imdb.png"
 
-    def scrape(self, id, media):
+    def get_score(self, id, media):
 
         if media.get("media_type") == "movie":
             media_type = "movie"

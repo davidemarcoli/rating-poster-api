@@ -7,7 +7,6 @@ from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi_cache import FastAPICache
-from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.coder import Coder
 from fastapi_cache.decorator import cache
@@ -18,9 +17,9 @@ from slowapi.util import get_remote_address
 from starlette.requests import Request
 from starlette.responses import Response
 
-from source.scrapers.imdb_cinemeta import IMDBCinemetaScraper
-from source.scrapers.tmdb import TMDBScraper
-from source.scrapers.trakt import TraktScraper
+from source.providers.imdb_cinemeta import IMDBCinemetaScraper
+from source.providers.tmdb import TMDBScraper
+from source.providers.trakt import TraktScraper
 
 load_dotenv()
 
@@ -32,7 +31,7 @@ app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-scrapers = [
+providers = [
     # IMDBScraper,
     IMDBCinemetaScraper,
     TMDBScraper,
@@ -90,11 +89,11 @@ def get_poster(request: Request, id: str):
 
     scores = []
 
-    for scraper in scrapers:
+    for provider in providers:
         try:
             scraper_start_time = time.time()
-            scores.append({"name": scraper.name, "image": scraper.image, "score": scraper().scrape(id, media)})
-            print(scraper.name + " took " + str((time.time() - scraper_start_time) * 1000) + "ms")
+            scores.append({"name": provider.name, "image": provider.image, "score": provider().get_score(id, media)})
+            print(provider.name + " took " + str((time.time() - scraper_start_time) * 1000) + "ms")
         except Exception as e:
             print(e)
 
@@ -140,53 +139,59 @@ def add_text_overlay(image, scores):
     font_size = 1000
     font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
 
-    total_text_width = 0
-    total_text_height = 0
+    total_width = 0
+    total_height = 0
     text_spacing = 40  # Space between the texts
     logo_spacing = 20  # Space between the logo and the text
     max_total_text_width_factor = 0.9  # Maximum width of the text as a factor of the image width
     max_total_text_width = width * max_total_text_width_factor
+    max_total_text_height_factor = 0.8  # Maximum height of the text as a factor of the overlay height
+    max_total_text_height = overlay_height * max_total_text_height_factor
     logos = []  # To store resized logos
 
     # Load and resize logos, and calculate total width required
     for score in scores:
-        logo = None
+        _, _, text_width, text_height = draw.textbbox((0, 0), str(score.get("score")), font=font)
+
         if score.get("image"):
             logo_path = f"source/assets/{score.get('image')}"  # Assume logos are named like 'imdb_logo.png'
             logo = Image.open(logo_path).convert("RGBA")
             # logo = logo.resize((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
-            logo.thumbnail((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
+            logo.thumbnail((int(max_total_text_height), int(max_total_text_width)), Image.Resampling.LANCZOS)
             logos.append(logo)
+            total_width += (logo.width + logo_spacing)
         else:
             logos.append(None)
-        _, _, text_width, text_height = draw.textbbox((0, 0), str(score.get("score")), font=font)
+            total_width += draw.textbbox((0, 0), score.get("name") + ": ", font=font)[2]
         # print("TEXT WIDTH: " + str(text_width))
 
-        total_text_width += (text_width + text_spacing)
+        total_width += (text_width + text_spacing)
+        total_height = text_height
 
-        if logo:
-            total_text_width += (logo.width + logo_spacing)
-        else:
-            total_text_width += draw.textbbox((0, 0), score.get("name") + ": ", font=font)[2]
-
-        total_text_height = text_height
-
-    # print("TOTAL TEXT WIDTH: " + str(total_text_width))
+    print("MAX TOTAL TEXT WIDTH: " + str(max_total_text_width))
+    print("TOTAL TEXT WIDTH: " + str(total_width))
+    print("WIDTH RATIO: " + str(total_width / max_total_text_width))
+    print("MAX TOTAL TEXT HEIGHT: " + str(max_total_text_height))
+    print("TOTAL TEXT HEIGHT: " + str(total_height))
+    print("HEIGHT RATIO: " + str(total_height / max_total_text_height))
 
     # Check if we need to scale down logos and text to fit
-    if total_text_width > max_total_text_width or total_text_height > overlay_height * 0.7:
-        scale_factor_width = (max_total_text_width - sum(
-            logo.width if logo else 0 for logo in logos)) / total_text_width
-        scale_factor_height = overlay_height * 0.7 / total_text_height
+    if total_width > max_total_text_width or total_height > max_total_text_height:
+        scale_factor_width = max_total_text_width / total_width
+        scale_factor_height = max_total_text_height / total_height
         scale_factor = min(scale_factor_width, scale_factor_height)
         # print("Scale factors: " + str(scale_factor_width) + ", " + str(scale_factor_height))
         # print("Old font size: " + str(font_size))
         font_size = int(font_size * scale_factor)
         # print("New font size: " + str(font_size))
         font = ImageFont.truetype("Ubuntu-C.ttf", font_size)
+
+        _, _, _, text_height = draw.textbbox((0, 0), str("Test"), font=font)
+
         for logo in logos:
             if logo:
-                logo.thumbnail((int(overlay_height * 0.75), int(overlay_height * 0.75)), Image.Resampling.LANCZOS)
+                logo.thumbnail((int(logo.width * text_height / overlay_height), int(logo.height)),
+                               Image.Resampling.LANCZOS)
 
     # Draw logos and texts on the overlay
     current_x = int(width * 0.03)
@@ -215,4 +220,5 @@ def add_text_overlay(image, scores):
 
 
 def filter_none(item):
-    return item is not None and item.get("score") is not None and item.get("score") != "" and str(item.get("score")) != "0.0"
+    return item is not None and item.get("score") is not None and item.get("score") != "" and str(
+        item.get("score")) != "0.0"

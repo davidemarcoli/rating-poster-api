@@ -2,14 +2,14 @@ import os
 
 import requests
 
-from source.scrapers.base import BaseScraper
+from source.providers.base import BaseProvider
 
 
-class TraktScraper(BaseScraper):
+class TraktScraper(BaseProvider):
     name = "trakt"
     image = "trakt.png"
 
-    def scrape(self, id, media):
+    def get_score(self, id, media):
 
         if media.get("media_type") == "movie":
             media_type = "movies"
